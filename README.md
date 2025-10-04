@@ -1,6 +1,6 @@
 # Secure Document Transfer
 
-A secure document transfer application with user authentication, built with Go and Supabase Auth.
+A secure document transfer application with user authentication, built with Go, React, TypeScript, and Supabase Auth.
 
 ## Project Structure
 
@@ -14,6 +14,16 @@ secure-document-transfer/
 │   ├── models.go         # Data models and validation
 │   ├── go.mod            # Go dependencies
 │   └── .env              # Environment variables (create this)
+├── frontend/
+│   ├── src/
+│   │   ├── pages/        # Page components (SignUp, Login, Dashboard)
+│   │   ├── services/     # API services
+│   │   ├── types/        # TypeScript types
+│   │   ├── App.tsx       # Main app component
+│   │   ├── App.css       # Global styles
+│   │   └── main.tsx      # Entry point
+│   ├── package.json      # Frontend dependencies
+│   └── vite.config.ts    # Vite configuration
 └── README.md             # This file
 ```
 
@@ -22,6 +32,7 @@ secure-document-transfer/
 ### Prerequisites
 
 - **Go 1.21+** - [Install Go](https://golang.org/dl/)
+- **Node.js 18+** - [Install Node.js](https://nodejs.org/)
 - **Supabase Account** - [Sign up free](https://supabase.com)
 
 ### 1. Set Up Supabase
@@ -52,13 +63,21 @@ PORT=8080
 
 ### 3. Install Dependencies
 
+**Backend:**
 ```bash
 cd backend
 go mod download
 ```
 
-### 4. Run the Server
+**Frontend:**
+```bash
+cd frontend
+npm install
+```
 
+### 4. Run the Application
+
+**Terminal 1 - Start Backend:**
 ```bash
 cd backend
 go run .
@@ -70,7 +89,24 @@ Server starting on port 8080...
 Supabase Auth integration enabled
 ```
 
-### 5. Test the API
+**Terminal 2 - Start Frontend:**
+```bash
+cd frontend
+npm run dev
+```
+
+The application will be available at **http://localhost:3000**
+
+### 5. Use the Application
+
+Open your browser and navigate to `http://localhost:3000`. You'll see the beautiful login page. You can:
+
+1. Click "Create Account" to sign up
+2. Fill in your details (name, email, password)
+3. Sign in after creating your account
+4. Access your dashboard
+
+### 6. Test the API (Optional)
 
 **Health check:**
 ```bash
@@ -252,6 +288,33 @@ curl -X POST http://localhost:8080/api/signout \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
+## Frontend Features
+
+The frontend is a modern, beautifully designed React + TypeScript application with:
+
+- **🎨 Modern UI Design** - Inspired by leading SaaS platforms like Paraform and Krew
+- **🌈 Gradient Effects** - Beautiful animated gradient backgrounds
+- **⚡ Fast Performance** - Built with Vite for lightning-fast development and builds
+- **📱 Responsive Design** - Works perfectly on desktop, tablet, and mobile
+- **🎭 Smooth Animations** - Fade-in effects and hover animations
+- **🔒 Secure Authentication** - JWT token management with localStorage
+- **♿ Accessible Forms** - Proper form labels and validation
+- **🎯 TypeScript** - Full type safety throughout the application
+
+### Pages
+
+- **Sign Up** (`/signup`) - Beautiful registration form with validation
+- **Login** (`/login`) - Secure login page with error handling
+- **Dashboard** (`/dashboard`) - Protected route showing user information
+
+### Tech Stack
+
+- React 18 with TypeScript
+- Vite (build tool)
+- React Router (routing)
+- Axios (API calls)
+- CSS3 with CSS Variables
+
 ## Security Features
 
 - ✅ **Supabase Auth** - Industry-standard authentication with JWT
@@ -398,11 +461,17 @@ go build -ldflags="-s -w" -o server
 
 ## Roadmap
 
+### Completed
 - [x] User registration (sign up)
 - [x] User login (sign in)
 - [x] JWT authentication middleware
 - [x] User profile endpoint
 - [x] Sign out functionality
+- [x] Modern React + TypeScript frontend
+- [x] Beautiful UI with animations
+- [x] Responsive design
+
+### In Progress
 - [ ] Password reset
 - [ ] Email verification
 - [ ] OAuth providers (Google, GitHub)
