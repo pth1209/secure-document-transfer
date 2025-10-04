@@ -49,18 +49,18 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-	tokenString := parts[1]
+		tokenString := parts[1]
 
-	// Verify the token with Supabase
-	user, err := SupabaseClient.Auth.WithToken(tokenString).GetUser()
-	if err != nil {
-		respondWithError(w, http.StatusUnauthorized, "Invalid or expired token", err.Error())
-		return
-	}
+		// Verify the token with Supabase
+		user, err := SupabaseClient.Auth.WithToken(tokenString).GetUser()
+		if err != nil {
+			respondWithError(w, http.StatusUnauthorized, "Invalid or expired token", err.Error())
+			return
+		}
 
-	// Add user info to request context
-	ctx := context.WithValue(r.Context(), "user_id", user.User.ID.String())
-	ctx = context.WithValue(ctx, "user_email", user.User.Email)
+		// Add user info to request context
+		ctx := context.WithValue(r.Context(), "user_id", user.User.ID.String())
+		ctx = context.WithValue(ctx, "user_email", user.User.Email)
 
 		// Call the next handler with the updated context
 		next.ServeHTTP(w, r.WithContext(ctx))
@@ -115,4 +115,3 @@ func VerifySupabaseJWT(tokenString string) (*jwt.Token, error) {
 
 	return token, nil
 }
-

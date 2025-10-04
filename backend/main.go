@@ -27,20 +27,24 @@ func main() {
 	}
 	defer db.Close()
 
+	// Set global DB variable for handlers to use
+	DB = db
+
 	// Create router
 	router := mux.NewRouter()
 
 	// API routes
 	api := router.PathPrefix("/api").Subrouter()
-	
+
 	// Public routes (no authentication required)
 	api.HandleFunc("/health", HealthCheckHandler).Methods("GET")
 	api.HandleFunc("/signup", SignUpHandler()).Methods("POST")
 	api.HandleFunc("/signin", SignInHandler()).Methods("POST")
-	
+
 	// Protected routes (authentication required)
 	api.HandleFunc("/profile", AuthMiddleware(GetProfileHandler())).Methods("GET")
 	api.HandleFunc("/signout", AuthMiddleware(SignOutHandler())).Methods("POST")
+	api.HandleFunc("/users/search", AuthMiddleware(SearchUsersHandler())).Methods("GET")
 
 	// Get port from environment or use default
 	port := os.Getenv("PORT")
@@ -77,4 +81,3 @@ func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"healthy"}`))
 }
-

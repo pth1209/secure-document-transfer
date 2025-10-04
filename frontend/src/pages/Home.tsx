@@ -217,7 +217,7 @@ const Home: React.FC = () => {
           </div>
         </div>
         <div className="footer-bottom">
-          <p>&copy; 2024 SecureTransfer. Built with security in mind.</p>
+          <p>&copy; 2025 SecureTransfer. Built with security in mind.</p>
         </div>
       </footer>
     </div>

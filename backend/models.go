@@ -7,7 +7,7 @@ import (
 
 // User represents a user in the system (from Supabase Auth)
 type User struct {
-	ID       string `json:"id"`        // UUID from Supabase Auth
+	ID       string `json:"id"` // UUID from Supabase Auth
 	Email    string `json:"email"`
 	FullName string `json:"full_name"`
 }
@@ -93,4 +93,3 @@ func isValidEmail(email string) bool {
 	re := regexp.MustCompile(pattern)
 	return re.MatchString(email)
 }
-

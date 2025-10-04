@@ -9,6 +9,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
+// DB is the global database connection
+var DB *sql.DB
+
 // InitDB initializes and returns a database connection to Supabase
 // Note: User authentication is handled by Supabase Auth (auth.users table)
 // This connection can be used for application-specific data tables
@@ -46,4 +49,3 @@ func InitDB() (*sql.DB, error) {
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
-
