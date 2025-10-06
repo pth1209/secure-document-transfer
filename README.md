@@ -56,7 +56,7 @@ Create a `.env` file in the `backend/` directory:
 
 ```env
 SUPABASE_URL=https://xxxxxxxxxxxxx.supabase.co
-SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+SUPABASE_ANON_KEY=...
 DATABASE_URL=postgresql://postgres:password@db.project.supabase.co:5432/postgres
 PORT=8080
 ```
