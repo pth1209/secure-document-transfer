@@ -62,6 +62,43 @@ func GetUserPublicKey(userID string) (string, error) {
 	return publicKey, nil
 }
 
+// GetUserByEmail retrieves a user by their email address
+func GetUserByEmail(email string) (*models.User, error) {
+	query := `
+		SELECT 
+			id::text,
+			email,
+			COALESCE(raw_user_meta_data->>'full_name', '') as full_name
+		FROM auth.users
+		WHERE LOWER(email) = LOWER($1)
+	`
+	
+	var user models.User
+	err := DB.QueryRow(query, email).Scan(&user.ID, &user.Email, &user.FullName)
+	if err != nil {
+		return nil, fmt.Errorf("user not found: %w", err)
+	}
+	
+	return &user, nil
+}
+
+// UserExistsByEmail checks if a user exists by email
+func UserExistsByEmail(email string) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM auth.users WHERE LOWER(email) = LOWER($1)
+		)
+	`
+	
+	var exists bool
+	err := DB.QueryRow(query, email).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check user existence: %w", err)
+	}
+	
+	return exists, nil
+}
+
 // SearchUsers searches for users in the Supabase auth schema
 func SearchUsers(query string, excludeUserID string) ([]models.User, error) {
 	// Build SQL query to search users by email or full_name

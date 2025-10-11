@@ -101,6 +101,9 @@ DATABASE_URL=your_database_url
 
 # Server Configuration
 PORT=8080
+
+# Frontend Configuration (for password reset redirects)
+FRONTEND_URL=http://localhost:5173
 ```
 
 ## API Endpoints
@@ -110,6 +113,8 @@ PORT=8080
 - `GET /api/health` - Health check
 - `POST /api/signup` - User registration
 - `POST /api/signin` - User login
+- `POST /api/password-reset/request` - Request password reset email
+- `POST /api/password-reset/reset` - Reset password with token
 
 ### Protected Endpoints (require authentication)
 

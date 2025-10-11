@@ -45,12 +45,15 @@ func main() {
 	api.HandleFunc("/health", HealthCheckHandler).Methods("GET")
 	api.HandleFunc("/signup", handlers.SignUpHandler()).Methods("POST")
 	api.HandleFunc("/signin", handlers.SignInHandler()).Methods("POST")
+	api.HandleFunc("/password-reset/request", handlers.RequestPasswordResetHandler()).Methods("POST")
+	api.HandleFunc("/password-reset/reset", handlers.ResetPasswordHandler()).Methods("POST")
 
 	// Protected routes (authentication required)
 	api.HandleFunc("/profile", middleware.AuthMiddleware(handlers.GetProfileHandler())).Methods("GET")
 	api.HandleFunc("/signout", middleware.AuthMiddleware(handlers.SignOutHandler())).Methods("POST")
 	api.HandleFunc("/users/search", middleware.AuthMiddleware(handlers.SearchUsersHandler())).Methods("GET")
 	api.HandleFunc("/users/public-key", middleware.AuthMiddleware(handlers.GetUserPublicKeyHandler())).Methods("GET")
+	api.HandleFunc("/files/send-chunk", middleware.AuthMiddleware(handlers.SendFileChunkHandler())).Methods("POST")
 
 	// Get port from environment or use default
 	port := os.Getenv("PORT")

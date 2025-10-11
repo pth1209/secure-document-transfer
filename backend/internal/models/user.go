@@ -116,3 +116,45 @@ func GetFullName(metadata map[string]interface{}) string {
 	return ""
 }
 
+// PasswordResetRequest represents the request body for password reset
+type PasswordResetRequest struct {
+	Email string `json:"email"`
+}
+
+// PasswordResetConfirm represents the request body for confirming password reset
+type PasswordResetConfirm struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"new_password"`
+}
+
+// Validate validates the password reset request
+func (req *PasswordResetRequest) Validate() error {
+	req.Email = strings.TrimSpace(req.Email)
+	
+	if req.Email == "" {
+		return &ValidationError{Field: "email", Message: "Email is required"}
+	}
+	if !isValidEmail(req.Email) {
+		return &ValidationError{Field: "email", Message: "Invalid email format"}
+	}
+	
+	return nil
+}
+
+// Validate validates the password reset confirmation
+func (req *PasswordResetConfirm) Validate() error {
+	req.Token = strings.TrimSpace(req.Token)
+	
+	if req.Token == "" {
+		return &ValidationError{Field: "token", Message: "Reset token is required"}
+	}
+	if req.NewPassword == "" {
+		return &ValidationError{Field: "new_password", Message: "New password is required"}
+	}
+	if len(req.NewPassword) < 8 {
+		return &ValidationError{Field: "new_password", Message: "Password must be at least 8 characters long"}
+	}
+	
+	return nil
+}
+
