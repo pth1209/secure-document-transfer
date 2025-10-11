@@ -1,4 +1,4 @@
-package main
+package database
 
 import (
 	"database/sql"
@@ -49,3 +49,4 @@ func InitDB() (*sql.DB, error) {
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
+

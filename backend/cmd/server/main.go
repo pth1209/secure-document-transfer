@@ -5,6 +5,11 @@ import (
 	"net/http"
 	"os"
 
+	"secure-document-transfer/internal/config"
+	"secure-document-transfer/internal/database"
+	"secure-document-transfer/internal/handlers"
+	"secure-document-transfer/internal/middleware"
+
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -16,19 +21,19 @@ func main() {
 	}
 
 	// Initialize Supabase client
-	if err := InitSupabaseClient(); err != nil {
+	if err := config.InitSupabaseClient(); err != nil {
 		log.Fatalf("Failed to initialize Supabase client: %v", err)
 	}
 
 	// Initialize database connection
-	db, err := InitDB()
+	db, err := database.InitDB()
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
 	defer db.Close()
 
 	// Set global DB variable for handlers to use
-	DB = db
+	database.DB = db
 
 	// Create router
 	router := mux.NewRouter()
@@ -38,13 +43,14 @@ func main() {
 
 	// Public routes (no authentication required)
 	api.HandleFunc("/health", HealthCheckHandler).Methods("GET")
-	api.HandleFunc("/signup", SignUpHandler()).Methods("POST")
-	api.HandleFunc("/signin", SignInHandler()).Methods("POST")
+	api.HandleFunc("/signup", handlers.SignUpHandler()).Methods("POST")
+	api.HandleFunc("/signin", handlers.SignInHandler()).Methods("POST")
 
 	// Protected routes (authentication required)
-	api.HandleFunc("/profile", AuthMiddleware(GetProfileHandler())).Methods("GET")
-	api.HandleFunc("/signout", AuthMiddleware(SignOutHandler())).Methods("POST")
-	api.HandleFunc("/users/search", AuthMiddleware(SearchUsersHandler())).Methods("GET")
+	api.HandleFunc("/profile", middleware.AuthMiddleware(handlers.GetProfileHandler())).Methods("GET")
+	api.HandleFunc("/signout", middleware.AuthMiddleware(handlers.SignOutHandler())).Methods("POST")
+	api.HandleFunc("/users/search", middleware.AuthMiddleware(handlers.SearchUsersHandler())).Methods("GET")
+	api.HandleFunc("/users/public-key", middleware.AuthMiddleware(handlers.GetUserPublicKeyHandler())).Methods("GET")
 
 	// Get port from environment or use default
 	port := os.Getenv("PORT")
@@ -81,3 +87,4 @@ func HealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"healthy"}`))
 }
+

@@ -1,36 +1,14 @@
-package main
+package middleware
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
 	"net/http"
-	"os"
 	"strings"
 
-	"github.com/golang-jwt/jwt/v5"
-	supabase "github.com/supabase-community/supabase-go"
+	"secure-document-transfer/internal/config"
+	"secure-document-transfer/internal/models"
 )
-
-// SupabaseClient holds the Supabase client instance
-var SupabaseClient *supabase.Client
-
-// InitSupabaseClient initializes the Supabase client
-func InitSupabaseClient() error {
-	supabaseURL := os.Getenv("SUPABASE_URL")
-	supabaseKey := os.Getenv("SUPABASE_ANON_KEY")
-
-	if supabaseURL == "" || supabaseKey == "" {
-		return fmt.Errorf("SUPABASE_URL and SUPABASE_ANON_KEY must be set")
-	}
-
-	client, err := supabase.NewClient(supabaseURL, supabaseKey, nil)
-	if err != nil {
-		return fmt.Errorf("failed to create Supabase client: %w", err)
-	}
-
-	SupabaseClient = client
-	return nil
-}
 
 // AuthMiddleware verifies the JWT token from Supabase Auth
 func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -52,7 +30,7 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		tokenString := parts[1]
 
 		// Verify the token with Supabase
-		user, err := SupabaseClient.Auth.WithToken(tokenString).GetUser()
+		user, err := config.SupabaseClient.Auth.WithToken(tokenString).GetUser()
 		if err != nil {
 			respondWithError(w, http.StatusUnauthorized, "Invalid or expired token", err.Error())
 			return
@@ -76,7 +54,7 @@ func OptionalAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			parts := strings.Split(authHeader, " ")
 			if len(parts) == 2 && parts[0] == "Bearer" {
 				tokenString := parts[1]
-				user, err := SupabaseClient.Auth.WithToken(tokenString).GetUser()
+				user, err := config.SupabaseClient.Auth.WithToken(tokenString).GetUser()
 				if err == nil {
 					ctx := context.WithValue(r.Context(), "user_id", user.User.ID.String())
 					ctx = context.WithValue(ctx, "user_email", user.User.Email)
@@ -89,29 +67,26 @@ func OptionalAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// VerifySupabaseJWT verifies a JWT token using Supabase's JWT secret
-// This is an alternative method that validates the JWT locally without a network call
-func VerifySupabaseJWT(tokenString string) (*jwt.Token, error) {
-	jwtSecret := os.Getenv("SUPABASE_JWT_SECRET")
-	if jwtSecret == "" {
-		return nil, fmt.Errorf("SUPABASE_JWT_SECRET is not set")
+// respondWithError sends an error response
+func respondWithError(w http.ResponseWriter, status int, message string, details string) {
+	errorResponse := models.ErrorResponse{
+		Error:   message,
+		Details: details,
 	}
-
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Verify the signing method
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(jwtSecret), nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
-	}
-
-	return token, nil
+	respondWithJSON(w, status, errorResponse)
 }
+
+// respondWithJSON sends a JSON response
+func respondWithJSON(w http.ResponseWriter, status int, payload interface{}) {
+	response, err := json.Marshal(payload)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"error":"Failed to marshal response"}`))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(response)
+}
+

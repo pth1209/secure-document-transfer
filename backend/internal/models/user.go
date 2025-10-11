@@ -1,4 +1,4 @@
-package main
+package models
 
 import (
 	"regexp"
@@ -34,10 +34,21 @@ type SignInRequest struct {
 
 // SignInResponse represents the response after successful signin
 type SignInResponse struct {
-	Message      string `json:"message"`
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	User         User   `json:"user"`
+	Message              string `json:"message"`
+	AccessToken          string `json:"access_token"`
+	RefreshToken         string `json:"refresh_token"`
+	User                 User   `json:"user"`
+	EncryptedPrivateKey  string `json:"encrypted_private_key"`
+	Salt                 string `json:"salt"`
+	IV                   string `json:"iv"`
+}
+
+// UserEncryptionKeys represents a user's encryption keys
+type UserEncryptionKeys struct {
+	PublicKey           string `json:"public_key"`
+	EncryptedPrivateKey string `json:"encrypted_private_key"`
+	Salt                string `json:"salt"`
+	IV                  string `json:"iv"`
 }
 
 // ErrorResponse represents an error response
@@ -93,3 +104,15 @@ func isValidEmail(email string) bool {
 	re := regexp.MustCompile(pattern)
 	return re.MatchString(email)
 }
+
+// GetFullName extracts full_name from user metadata
+func GetFullName(metadata map[string]interface{}) string {
+	if metadata == nil {
+		return ""
+	}
+	if fullName, ok := metadata["full_name"].(string); ok {
+		return fullName
+	}
+	return ""
+}
+
