@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { SignUpRequest, SignUpResponse, SignInRequest, SignInResponse, User } from '../types/auth';
+import type { FileChunk } from '../types/file';
 
 const api = axios.create({
   baseURL: '/api',
@@ -45,6 +46,28 @@ export const userService = {
 
   sendFiles: async (formData: FormData): Promise<{ message: string }> => {
     const response = await api.post<{ message: string }>('/files/send', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  sendFileChunk: async (chunk: FileChunk, recipientIds: string[]): Promise<{ message: string }> => {
+    const formData = new FormData();
+    formData.append('chunk', chunk.chunk_data);
+    formData.append('file_id', chunk.file_id);
+    formData.append('chunk_index', chunk.chunk_index.toString());
+    formData.append('total_chunks', chunk.total_chunks.toString());
+    formData.append('original_filename', chunk.original_filename);
+    formData.append('file_size', chunk.file_size.toString());
+    formData.append('chunk_size', chunk.chunk_size.toString());
+    
+    recipientIds.forEach(id => {
+      formData.append('recipient_ids[]', id);
+    });
+
+    const response = await api.post<{ message: string }>('/files/send-chunk', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService, userService } from '../services/api';
 import type { User } from '../types/auth';
+import type { FileChunk, ChunkedFile } from '../types/file';
+
+// Configuration for file chunking
+const CHUNK_SIZE = 1024 * 1024 * 2; // 2MB chunks
 
 const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -12,6 +16,13 @@ const Dashboard: React.FC = () => {
   const [files, setFiles] = useState<File[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    currentFile: string;
+    currentChunk: number;
+    totalChunks: number;
+    fileIndex: number;
+    totalFiles: number;
+  } | null>(null);
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -66,6 +77,11 @@ const Dashboard: React.FC = () => {
     setFiles(prev => prev.filter((_, i) => i !== index));
   };
 
+  const isValidEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
   const handleSelectUser = (user: User) => {
     if (!selectedUsers.some(u => u.id === user.id)) {
       setSelectedUsers(prev => [...prev, user]);
@@ -74,8 +90,78 @@ const Dashboard: React.FC = () => {
     setSearchResults([]);
   };
 
+  const handleAddEmailRecipient = (email: string) => {
+    const trimmedEmail = email.trim().toLowerCase();
+    
+    if (!isValidEmail(trimmedEmail)) {
+      alert('Please enter a valid email address');
+      return;
+    }
+
+    // Check if email already exists in selected users
+    if (selectedUsers.some(u => u.email.toLowerCase() === trimmedEmail)) {
+      alert('This email is already in the recipient list');
+      return;
+    }
+
+    // Create a user object with the email
+    const newRecipient: User = {
+      id: `email-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      email: trimmedEmail,
+      full_name: trimmedEmail, // Use email as display name
+    };
+
+    setSelectedUsers(prev => [...prev, newRecipient]);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (searchQuery.trim()) {
+        handleAddEmailRecipient(searchQuery);
+      }
+    }
+  };
+
   const handleRemoveUser = (userId: string) => {
     setSelectedUsers(prev => prev.filter(u => u.id !== userId));
+  };
+
+  // Generate a unique file ID
+  const generateFileId = (): string => {
+    return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+  };
+
+  // Chunk a single file into smaller segments
+  const chunkFile = async (file: File): Promise<ChunkedFile> => {
+    const fileId = generateFileId();
+    const chunks: FileChunk[] = [];
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, file.size);
+      const chunkBlob = file.slice(start, end);
+
+      chunks.push({
+        file_id: fileId,
+        chunk_index: i,
+        total_chunks: totalChunks,
+        chunk_data: chunkBlob,
+        original_filename: file.name,
+        file_size: file.size,
+        chunk_size: chunkBlob.size,
+      });
+    }
+
+    return {
+      file_id: fileId,
+      original_file: file,
+      chunks,
+      total_chunks: totalChunks,
+    };
   };
 
   const handleSendFiles = async () => {
@@ -86,18 +172,49 @@ const Dashboard: React.FC = () => {
 
     try {
       setUploading(true);
-      const formData = new FormData();
-      files.forEach(file => {
-        formData.append('files', file);
-      });
-      // Send recipient IDs as comma-separated string or JSON array
-      selectedUsers.forEach(user => {
-        formData.append('recipient_ids[]', user.id);
-      });
+      const recipientIds = selectedUsers.map(u => u.id);
 
-      await userService.sendFiles(formData);
+      // Chunk all files
+      const chunkedFiles: ChunkedFile[] = [];
+      for (const file of files) {
+        const chunked = await chunkFile(file);
+        console.log(`File "${file.name}" chunked:`, {
+          file_id: chunked.file_id,
+          total_chunks: chunked.total_chunks,
+          original_size: file.size,
+          chunk_size: CHUNK_SIZE,
+          chunks: chunked.chunks.map(c => ({
+            chunk_index: c.chunk_index,
+            chunk_size: c.chunk_size,
+            file_id: c.file_id
+          }))
+        });
+        chunkedFiles.push(chunked);
+      }
+
+      // Send chunks for all files
+      for (let fileIndex = 0; fileIndex < chunkedFiles.length; fileIndex++) {
+        const chunkedFile = chunkedFiles[fileIndex];
+        
+        for (let chunkIndex = 0; chunkIndex < chunkedFile.chunks.length; chunkIndex++) {
+          const chunk = chunkedFile.chunks[chunkIndex];
+          
+          // Update progress
+          setUploadProgress({
+            currentFile: chunk.original_filename,
+            currentChunk: chunkIndex + 1,
+            totalChunks: chunk.total_chunks,
+            fileIndex: fileIndex + 1,
+            totalFiles: chunkedFiles.length,
+          });
+
+          // Send the chunk
+          await userService.sendFileChunk(chunk, recipientIds);
+        }
+      }
       
-      // Reset form
+      // Reset form and progress
+      setUploadProgress(null);
       setFiles([]);
       setSelectedUsers([]);
       setSearchQuery('');
@@ -106,6 +223,7 @@ const Dashboard: React.FC = () => {
     } catch (err) {
       console.error('Upload error:', err);
       alert('Failed to send files. Please try again.');
+      setUploadProgress(null);
     } finally {
       setUploading(false);
     }
@@ -162,14 +280,15 @@ const Dashboard: React.FC = () => {
               fontWeight: 500,
               color: 'var(--text-primary)'
             }}>
-              Search for users to send documents
+              Add recipients
             </label>
             <div style={{ position: 'relative' }}>
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by email or name..."
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Type email and press Enter, or search users..."
                 className="input"
                 style={{ width: '100%' }}
               />
@@ -187,7 +306,7 @@ const Dashboard: React.FC = () => {
             </div>
 
             {/* Search Results */}
-            {searchResults.length > 0 && (
+            {searchQuery.trim().length > 0 && (
               <div style={{
                 marginTop: '0.5rem',
                 border: '1px solid var(--border-color)',
@@ -196,27 +315,49 @@ const Dashboard: React.FC = () => {
                 overflowY: 'auto',
                 backgroundColor: 'var(--background)'
               }}>
-                {searchResults.map((result) => (
-                  <div
-                    key={result.id}
-                    onClick={() => handleSelectUser(result)}
-                    style={{
-                      padding: '1rem',
-                      borderBottom: '1px solid var(--border-color)',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--surface)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--background)'}
-                  >
-                    <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
-                      {result.full_name}
+                {searchResults.length > 0 ? (
+                  searchResults.map((result) => (
+                    <div
+                      key={result.id}
+                      onClick={() => handleSelectUser(result)}
+                      style={{
+                        padding: '1rem',
+                        borderBottom: '1px solid var(--border-color)',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.2s'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--surface)'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--background)'}
+                    >
+                      <div style={{ fontWeight: 500, color: 'var(--text-primary)' }}>
+                        {result.full_name}
+                      </div>
+                      <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                        {result.email}
+                      </div>
                     </div>
-                    <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                      {result.email}
+                  ))
+                ) : (
+                  !isSearching && (
+                    <div
+                      onClick={() => handleAddEmailRecipient(searchQuery)}
+                      style={{
+                        padding: '1rem',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.2s',
+                        textAlign: 'center'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--surface)'}
+                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'var(--background)'}
+                    >
+                      <div style={{ color: 'var(--primary-color)', fontWeight: 500 }}>
+                        {isValidEmail(searchQuery.trim()) 
+                          ? `Add "${searchQuery.trim()}" as recipient`
+                          : 'Press Enter to add email'}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                )}
               </div>
             )}
 
@@ -385,6 +526,49 @@ const Dashboard: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Upload Progress */}
+          {uploadProgress && (
+            <div style={{ 
+              marginBottom: '2rem', 
+              padding: '1.5rem',
+              backgroundColor: 'var(--surface)',
+              borderRadius: '8px',
+              border: '1px solid var(--border-color)'
+            }}>
+              <div style={{ 
+                fontWeight: 500, 
+                marginBottom: '1rem',
+                color: 'var(--text-primary)'
+              }}>
+                Uploading files...
+              </div>
+              
+              <div style={{ marginBottom: '0.5rem', color: 'var(--text-primary)' }}>
+                File {uploadProgress.fileIndex} of {uploadProgress.totalFiles}: {uploadProgress.currentFile}
+              </div>
+              
+              <div style={{ marginBottom: '0.75rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                Chunk {uploadProgress.currentChunk} of {uploadProgress.totalChunks}
+              </div>
+              
+              {/* Progress Bar */}
+              <div style={{
+                width: '100%',
+                height: '8px',
+                backgroundColor: 'var(--background)',
+                borderRadius: '4px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  height: '100%',
+                  backgroundColor: 'var(--primary-color)',
+                  width: `${(uploadProgress.currentChunk / uploadProgress.totalChunks) * 100}%`,
+                  transition: 'width 0.3s ease'
+                }} />
+              </div>
+            </div>
+          )}
 
           {/* Send Button */}
           <button 
