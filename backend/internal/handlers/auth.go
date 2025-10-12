@@ -180,7 +180,7 @@ func signupWithRedirect(email, password, fullName, frontendURL string) (*signupR
 			"full_name": fullName,
 		},
 		"options": map[string]interface{}{
-			"email_redirect_to": fmt.Sprintf("%s/login", frontendURL),
+			"emailRedirectTo": fmt.Sprintf("%s/login", frontendURL),
 		},
 	}
 	jsonBody, err := json.Marshal(requestBody)
@@ -395,7 +395,7 @@ func sendPasswordResetEmail(email string) error {
 	// Prepare the request body with redirectTo parameter
 	requestBody := map[string]string{
 		"email":      email,
-		"redirect_to": fmt.Sprintf("%s/reset-password", frontendURL),
+		"redirectTo": fmt.Sprintf("%s/reset-password", frontendURL),
 	}
 	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
