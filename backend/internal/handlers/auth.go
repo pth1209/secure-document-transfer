@@ -55,25 +55,32 @@ func SignUpHandler() http.HandlerFunc {
 			return
 		}
 
-		// Create user record in database with encryption keys
-		userID := authResponse.User.ID
-		err = database.CreateUser(userID, keys.PublicKeyPEM, keys.EncryptedPrivateKey, keys.Salt, keys.IV)
-		if err != nil {
-			// Note: User was created in Supabase Auth but failed to save keys to database
-			RespondWithError(w, http.StatusInternalServerError, "Failed to save user encryption keys", err.Error())
-			return
-		}
+	// Create user record in database with encryption keys
+	userID := authResponse.ID
+	
+	// Validate that we received a valid user ID
+	if userID == "" {
+		RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve user ID from authentication service", "User ID is empty")
+		return
+	}
+	
+	err = database.CreateUser(userID, keys.PublicKeyPEM, keys.EncryptedPrivateKey, keys.Salt, keys.IV)
+	if err != nil {
+		// Note: User was created in Supabase Auth but failed to save keys to database
+		RespondWithError(w, http.StatusInternalServerError, "Failed to save user encryption keys", err.Error())
+		return
+	}
 
-		// Respond with success
-		response := models.SignUpResponse{
-			Message:     "User registered successfully. Please check your email to verify your account.",
-			AccessToken: authResponse.AccessToken,
-			User: models.User{
-				ID:       authResponse.User.ID,
-				Email:    authResponse.User.Email,
-				FullName: models.GetFullName(authResponse.User.UserMetadata),
-			},
-		}
+	// Respond with success
+	response := models.SignUpResponse{
+		Message:     "User registered successfully. Please check your email to verify your account.",
+		AccessToken: authResponse.AccessToken,
+		User: models.User{
+			ID:       authResponse.ID,
+			Email:    authResponse.Email,
+			FullName: models.GetFullName(authResponse.UserMetadata),
+		},
+	}
 		RespondWithJSON(w, http.StatusCreated, response)
 	}
 }
@@ -146,14 +153,14 @@ func SignOutHandler() http.HandlerFunc {
 }
 
 // signupResponse matches the structure of Supabase Auth signup response
+// When email confirmation is enabled, Supabase returns the user object directly
+// without access_token (user must confirm email first)
 type signupResponse struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	User         struct {
-		ID           string                 `json:"id"`
-		Email        string                 `json:"email"`
-		UserMetadata map[string]interface{} `json:"user_metadata"`
-	} `json:"user"`
+	AccessToken  string                 `json:"access_token,omitempty"`
+	RefreshToken string                 `json:"refresh_token,omitempty"`
+	ID           string                 `json:"id"`
+	Email        string                 `json:"email"`
+	UserMetadata map[string]interface{} `json:"user_metadata"`
 }
 
 // signupWithRedirect creates a user via Supabase Auth API with redirect_to parameter
@@ -204,6 +211,9 @@ func signupWithRedirect(email, password, fullName, frontendURL string) (*signupR
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
+	log.Printf("DEBUG: Supabase signup response status: %d", resp.StatusCode)
+	log.Printf("DEBUG: Supabase signup response body: %s", string(body))
+
 	// Check if the request was successful
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		return nil, fmt.Errorf("failed to create user, status: %d, body: %s", resp.StatusCode, string(body))
@@ -216,6 +226,13 @@ func signupWithRedirect(email, password, fullName, frontendURL string) (*signupR
 	}
 
 	log.Printf("User signed up successfully with redirect to %s/login", frontendURL)
+	log.Printf("DEBUG: Parsed user ID: %s, Email: %s", authResponse.ID, authResponse.Email)
+	
+	// Validate that we received a user ID
+	if authResponse.ID == "" {
+		return nil, fmt.Errorf("no user ID returned from Supabase (email: %s). Response body: %s", authResponse.Email, string(body))
+	}
+	
 	return &authResponse, nil
 }
 
@@ -378,7 +395,7 @@ func sendPasswordResetEmail(email string) error {
 	// Prepare the request body with redirectTo parameter
 	requestBody := map[string]string{
 		"email":      email,
-		"redirectTo": fmt.Sprintf("%s/reset-password", frontendURL),
+		"redirect_to": fmt.Sprintf("%s/reset-password", frontendURL),
 	}
 	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {

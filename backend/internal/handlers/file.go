@@ -56,11 +56,36 @@ func SendFileChunkHandler() http.HandlerFunc {
 		encryptedKeysJSON := r.FormValue("encrypted_keys")
 		mimeType := r.FormValue("mime_type")
 
-		// Validate required fields
-		if fileID == "" || chunkIndexStr == "" || totalChunksStr == "" || originalFilename == "" || iv == "" || encryptedKeysJSON == "" {
-			RespondWithError(w, http.StatusBadRequest, "Missing required fields", "")
-			return
-		}
+	// Validate required fields
+	var missingFields []string
+	if fileID == "" {
+		missingFields = append(missingFields, "file_id")
+	}
+	if chunkIndexStr == "" {
+		missingFields = append(missingFields, "chunk_index")
+	}
+	if totalChunksStr == "" {
+		missingFields = append(missingFields, "total_chunks")
+	}
+	if originalFilename == "" {
+		missingFields = append(missingFields, "original_filename")
+	}
+	if fileSizeStr == "" {
+		missingFields = append(missingFields, "file_size")
+	}
+	if chunkSizeStr == "" {
+		missingFields = append(missingFields, "chunk_size")
+	}
+	if iv == "" {
+		missingFields = append(missingFields, "iv")
+	}
+	if encryptedKeysJSON == "" {
+		missingFields = append(missingFields, "encrypted_keys")
+	}
+	if len(missingFields) > 0 {
+		RespondWithError(w, http.StatusBadRequest, "Missing required fields: "+strings.Join(missingFields, ", "), "")
+		return
+	}
 
 		// Parse numeric values
 		chunkIndex, err := strconv.Atoi(chunkIndexStr)

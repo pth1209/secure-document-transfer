@@ -44,6 +44,13 @@ export const userService = {
     return response.data;
   },
 
+  getPublicKeysByEmails: async (emails: string[]): Promise<{ public_keys: { [email: string]: string }, missing_keys: string[] }> => {
+    const response = await api.post<{ public_keys: { [email: string]: string }, missing_keys: string[] }>('/users/public-keys', {
+      emails: emails
+    });
+    return response.data;
+  },
+
   sendFiles: async (formData: FormData): Promise<{ message: string }> => {
     const response = await api.post<{ message: string }>('/files/send', formData, {
       headers: {
@@ -53,18 +60,21 @@ export const userService = {
     return response.data;
   },
 
-  sendFileChunk: async (chunk: FileChunk, recipientIds: string[]): Promise<{ message: string }> => {
+  sendFileChunk: async (chunk: FileChunk, recipientEmails: string[]): Promise<{ message: string }> => {
     const formData = new FormData();
-    formData.append('chunk', chunk.chunk_data);
+    formData.append('encrypted_chunk', chunk.chunk_data);
     formData.append('file_id', chunk.file_id);
     formData.append('chunk_index', chunk.chunk_index.toString());
     formData.append('total_chunks', chunk.total_chunks.toString());
     formData.append('original_filename', chunk.original_filename);
     formData.append('file_size', chunk.file_size.toString());
     formData.append('chunk_size', chunk.chunk_size.toString());
+    formData.append('iv', chunk.iv);
+    formData.append('encrypted_keys', JSON.stringify(chunk.encrypted_keys));
+    formData.append('mime_type', chunk.mime_type);
     
-    recipientIds.forEach(id => {
-      formData.append('recipient_ids[]', id);
+    recipientEmails.forEach(email => {
+      formData.append('recipient_emails[]', email);
     });
 
     const response = await api.post<{ message: string }>('/files/send-chunk', formData, {

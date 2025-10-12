@@ -3,6 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { authService, userService } from '../services/api';
 import type { User } from '../types/auth';
 import type { FileChunk, ChunkedFile } from '../types/file';
+import { 
+  generateAESKey, 
+  generateIV, 
+  encryptChunk, 
+  arrayBufferToBase64,
+  encryptKeyForRecipient,
+  getMimeType 
+} from '../utils/crypto';
 
 // Configuration for file chunking
 const CHUNK_SIZE = 1024 * 1024 * 2; // 2MB chunks
@@ -134,25 +142,60 @@ const Dashboard: React.FC = () => {
     return `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
   };
 
-  // Chunk a single file into smaller segments
-  const chunkFile = async (file: File): Promise<ChunkedFile> => {
+  // Chunk and encrypt a single file
+  const chunkFile = async (
+    file: File, 
+    recipientEmails: string[], 
+    recipientPublicKeys: { [email: string]: string }
+  ): Promise<ChunkedFile> => {
     const fileId = generateFileId();
     const chunks: FileChunk[] = [];
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    const mimeType = getMimeType(file);
 
+    // Generate a single AES key for the entire file
+    const aesKey = await generateAESKey();
+
+    // Encrypt the AES key for each recipient using their RSA public key
+    const encryptedKeys: { [email: string]: string } = {};
+    for (const email of recipientEmails) {
+      const publicKey = recipientPublicKeys[email];
+      if (publicKey) {
+        encryptedKeys[email] = await encryptKeyForRecipient(aesKey, publicKey);
+      } else {
+        // If recipient doesn't have a public key yet, they'll get one when they sign in
+        // For now, we'll skip them - the backend will handle user creation
+        console.warn(`Recipient ${email} does not have a public key yet`);
+      }
+    }
+
+    // Process each chunk
     for (let i = 0; i < totalChunks; i++) {
       const start = i * CHUNK_SIZE;
       const end = Math.min(start + CHUNK_SIZE, file.size);
       const chunkBlob = file.slice(start, end);
 
+      // Generate a unique IV for this chunk
+      const iv = generateIV();
+
+      // Encrypt the chunk
+      const encryptedData = await encryptChunk(chunkBlob, aesKey, iv);
+      const encryptedBlob = new Blob([encryptedData]);
+
+      // Convert IV to base64 for transmission
+      const ivBase64 = arrayBufferToBase64(iv.buffer as ArrayBuffer);
+
       chunks.push({
         file_id: fileId,
         chunk_index: i,
         total_chunks: totalChunks,
-        chunk_data: chunkBlob,
+        chunk_data: encryptedBlob,
         original_filename: file.name,
         file_size: file.size,
-        chunk_size: chunkBlob.size,
+        chunk_size: encryptedBlob.size,
+        iv: ivBase64,
+        encrypted_keys: encryptedKeys,
+        mime_type: mimeType,
       });
     }
 
@@ -172,29 +215,62 @@ const Dashboard: React.FC = () => {
 
     try {
       setUploading(true);
-      const recipientIds = selectedUsers.map(u => u.id);
+      const recipientEmails = selectedUsers.map(u => u.email);
 
-      // Chunk all files
+      // Fetch public keys for all recipients
+      console.log('Fetching public keys for recipients:', recipientEmails);
+      const publicKeysResponse = await userService.getPublicKeysByEmails(recipientEmails);
+      const recipientPublicKeys = publicKeysResponse.public_keys;
+      const missingKeys = publicKeysResponse.missing_keys;
+
+      console.log('Public keys response:', {
+        total_recipients: recipientEmails.length,
+        recipients_with_keys: Object.keys(recipientPublicKeys).length,
+        missing_keys: missingKeys
+      });
+
+      // Warn about recipients without keys
+      if (missingKeys && missingKeys.length > 0) {
+        console.warn('Recipients without public keys:', missingKeys);
+        const confirm = window.confirm(
+          `The following recipients don't have accounts yet and won't be able to decrypt the files until they sign up:\n\n${missingKeys.join('\n')}\n\nDo you want to continue?`
+        );
+        if (!confirm) {
+          setUploading(false);
+          return;
+        }
+      }
+
+      // Chunk and encrypt all files
       const chunkedFiles: ChunkedFile[] = [];
       for (const file of files) {
-        const chunked = await chunkFile(file);
-        console.log(`File "${file.name}" chunked:`, {
-          file_id: chunked.file_id,
-          total_chunks: chunked.total_chunks,
-          original_size: file.size,
-          chunk_size: CHUNK_SIZE,
-          chunks: chunked.chunks.map(c => ({
-            chunk_index: c.chunk_index,
-            chunk_size: c.chunk_size,
-            file_id: c.file_id
-          }))
-        });
-        chunkedFiles.push(chunked);
+        console.log(`Starting encryption for file: ${file.name}`);
+        try {
+          const chunked = await chunkFile(file, recipientEmails, recipientPublicKeys);
+          console.log(`File "${file.name}" chunked and encrypted:`, {
+            file_id: chunked.file_id,
+            total_chunks: chunked.total_chunks,
+            original_size: file.size,
+            chunk_size: CHUNK_SIZE,
+            recipients_with_keys: Object.keys(recipientPublicKeys).length,
+            chunks: chunked.chunks.map(c => ({
+              chunk_index: c.chunk_index,
+              chunk_size: c.chunk_size,
+              file_id: c.file_id,
+              encrypted: true
+            }))
+          });
+          chunkedFiles.push(chunked);
+        } catch (encryptError) {
+          console.error(`Encryption error for file ${file.name}:`, encryptError);
+          throw new Error(`Failed to encrypt file "${file.name}": ${encryptError instanceof Error ? encryptError.message : String(encryptError)}`);
+        }
       }
 
       // Send chunks for all files
       for (let fileIndex = 0; fileIndex < chunkedFiles.length; fileIndex++) {
         const chunkedFile = chunkedFiles[fileIndex];
+        console.log(`Starting upload for file ${fileIndex + 1}/${chunkedFiles.length}`);
         
         for (let chunkIndex = 0; chunkIndex < chunkedFile.chunks.length; chunkIndex++) {
           const chunk = chunkedFile.chunks[chunkIndex];
@@ -208,8 +284,16 @@ const Dashboard: React.FC = () => {
             totalFiles: chunkedFiles.length,
           });
 
+          console.log(`Uploading chunk ${chunkIndex + 1}/${chunk.total_chunks} for ${chunk.original_filename}`);
+          
           // Send the chunk
-          await userService.sendFileChunk(chunk, recipientIds);
+          try {
+            await userService.sendFileChunk(chunk, recipientEmails);
+            console.log(`Successfully uploaded chunk ${chunkIndex + 1}/${chunk.total_chunks}`);
+          } catch (uploadError) {
+            console.error(`Upload error for chunk ${chunkIndex + 1}:`, uploadError);
+            throw new Error(`Failed to upload chunk ${chunkIndex + 1}: ${uploadError instanceof Error ? uploadError.message : String(uploadError)}`);
+          }
         }
       }
       
@@ -220,9 +304,10 @@ const Dashboard: React.FC = () => {
       setSearchQuery('');
       setSearchResults([]);
       alert('Files sent successfully!');
-    } catch (err) {
+    } catch (err: any) {
       console.error('Upload error:', err);
-      alert('Failed to send files. Please try again.');
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to send files. Please try again.';
+      alert(errorMessage);
       setUploadProgress(null);
     } finally {
       setUploading(false);
