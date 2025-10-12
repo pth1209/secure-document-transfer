@@ -3,6 +3,7 @@ package database
 import (
 	"fmt"
 
+	"github.com/lib/pq"
 	"secure-document-transfer/internal/models"
 )
 
@@ -146,5 +147,49 @@ func SearchUsers(query string, excludeUserID string) ([]models.User, error) {
 	}
 
 	return users, nil
+}
+
+// GetPublicKeysByEmails retrieves public keys for multiple email addresses
+// Returns a map of email -> public_key for users that exist and have keys
+func GetPublicKeysByEmails(emails []string) (map[string]string, error) {
+	if len(emails) == 0 {
+		return map[string]string{}, nil
+	}
+
+	// Convert emails to lowercase for case-insensitive matching
+	lowercaseEmails := make([]string, len(emails))
+	for i, email := range emails {
+		lowercaseEmails[i] = email
+	}
+
+	query := `
+		SELECT 
+			au.email,
+			pu.public_key
+		FROM auth.users au
+		INNER JOIN public.users pu ON au.id = pu.id
+		WHERE LOWER(au.email) = ANY($1)
+	`
+
+	rows, err := DB.Query(query, pq.Array(lowercaseEmails))
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve public keys: %w", err)
+	}
+	defer rows.Close()
+
+	publicKeys := make(map[string]string)
+	for rows.Next() {
+		var email, publicKey string
+		if err := rows.Scan(&email, &publicKey); err != nil {
+			return nil, fmt.Errorf("failed to scan public key: %w", err)
+		}
+		publicKeys[email] = publicKey
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating public keys: %w", err)
+	}
+
+	return publicKeys, nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"secure-document-transfer/internal/database"
 	"secure-document-transfer/internal/handlers"
 	"secure-document-transfer/internal/middleware"
+	"secure-document-transfer/internal/storage"
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
@@ -35,6 +36,12 @@ func main() {
 	// Set global DB variable for handlers to use
 	database.DB = db
 
+	// Initialize Supabase Storage bucket
+	if err := storage.InitializeBucket(); err != nil {
+		log.Printf("Warning: Failed to initialize storage bucket: %v", err)
+		log.Println("Please ensure the 'encrypted-files' bucket exists in Supabase Storage")
+	}
+
 	// Create router
 	router := mux.NewRouter()
 
@@ -53,6 +60,7 @@ func main() {
 	api.HandleFunc("/signout", middleware.AuthMiddleware(handlers.SignOutHandler())).Methods("POST")
 	api.HandleFunc("/users/search", middleware.AuthMiddleware(handlers.SearchUsersHandler())).Methods("GET")
 	api.HandleFunc("/users/public-key", middleware.AuthMiddleware(handlers.GetUserPublicKeyHandler())).Methods("GET")
+	api.HandleFunc("/users/public-keys", middleware.AuthMiddleware(handlers.GetPublicKeysByEmailsHandler())).Methods("POST")
 	api.HandleFunc("/files/send-chunk", middleware.AuthMiddleware(handlers.SendFileChunkHandler())).Methods("POST")
 
 	// Get port from environment or use default

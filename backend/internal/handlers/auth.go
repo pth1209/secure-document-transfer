@@ -15,8 +15,6 @@ import (
 	"secure-document-transfer/internal/crypto"
 	"secure-document-transfer/internal/database"
 	"secure-document-transfer/internal/models"
-
-	"github.com/supabase-community/gotrue-go/types"
 )
 
 // SignUpHandler handles user registration via Supabase Auth
@@ -44,23 +42,21 @@ func SignUpHandler() http.HandlerFunc {
 			return
 		}
 
-		// Sign up with Supabase Auth
-		signupRequest := types.SignupRequest{
-			Email:    req.Email,
-			Password: req.Password,
-			Data: map[string]interface{}{
-				"full_name": req.FullName,
-			},
-		}
-
-		authResponse, err := config.SupabaseClient.Auth.Signup(signupRequest)
+	// Sign up with Supabase Auth with email redirect to login page
+	frontendURL := os.Getenv("FRONTEND_URL")
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+	
+	// Use direct HTTP call to support redirect_to parameter
+	authResponse, err := signupWithRedirect(req.Email, req.Password, req.FullName, frontendURL)
 		if err != nil {
 			RespondWithError(w, http.StatusBadRequest, "Failed to create user", err.Error())
 			return
 		}
 
 		// Create user record in database with encryption keys
-		userID := authResponse.User.ID.String()
+		userID := authResponse.User.ID
 		err = database.CreateUser(userID, keys.PublicKeyPEM, keys.EncryptedPrivateKey, keys.Salt, keys.IV)
 		if err != nil {
 			// Note: User was created in Supabase Auth but failed to save keys to database
@@ -73,7 +69,7 @@ func SignUpHandler() http.HandlerFunc {
 			Message:     "User registered successfully. Please check your email to verify your account.",
 			AccessToken: authResponse.AccessToken,
 			User: models.User{
-				ID:       authResponse.User.ID.String(),
+				ID:       authResponse.User.ID,
 				Email:    authResponse.User.Email,
 				FullName: models.GetFullName(authResponse.User.UserMetadata),
 			},
@@ -149,6 +145,80 @@ func SignOutHandler() http.HandlerFunc {
 	}
 }
 
+// signupResponse matches the structure of Supabase Auth signup response
+type signupResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	User         struct {
+		ID           string                 `json:"id"`
+		Email        string                 `json:"email"`
+		UserMetadata map[string]interface{} `json:"user_metadata"`
+	} `json:"user"`
+}
+
+// signupWithRedirect creates a user via Supabase Auth API with redirect_to parameter
+func signupWithRedirect(email, password, fullName, frontendURL string) (*signupResponse, error) {
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	supabaseKey := os.Getenv("SUPABASE_ANON_KEY")
+
+	if supabaseURL == "" || supabaseKey == "" {
+		return nil, fmt.Errorf("SUPABASE_URL and SUPABASE_ANON_KEY must be set")
+	}
+
+	// Prepare the request body with redirect_to parameter
+	requestBody := map[string]interface{}{
+		"email":    email,
+		"password": password,
+		"data": map[string]interface{}{
+			"full_name": fullName,
+		},
+		"options": map[string]interface{}{
+			"email_redirect_to": fmt.Sprintf("%s/login", frontendURL),
+		},
+	}
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Make the HTTP request to Supabase Auth API
+	url := fmt.Sprintf("%s/auth/v1/signup", supabaseURL)
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("apikey", supabaseKey)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read the response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Check if the request was successful
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("failed to create user, status: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse the response
+	var authResponse signupResponse
+	if err := json.Unmarshal(body, &authResponse); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	log.Printf("User signed up successfully with redirect to %s/login", frontendURL)
+	return &authResponse, nil
+}
+
 // generateSecurePassword generates a random secure password
 func generateSecurePassword() (string, error) {
 	// Generate 16 random bytes (will be 24 characters in base64)
@@ -162,47 +232,48 @@ func generateSecurePassword() (string, error) {
 }
 
 // CreateUserAndSendResetEmail creates a new user with a random password and sends a password reset email
+// This is used for auto-created users (e.g., file recipients) and does NOT send a verification email
 func CreateUserAndSendResetEmail(email string) (*models.User, error) {
 	// Generate a random secure password
 	randomPassword, err := generateSecurePassword()
 	if err != nil {
+		log.Printf("ERROR: Failed to generate password for %s: %v", email, err)
 		return nil, err
 	}
 
 	// Generate encryption keys for the user
 	keys, err := crypto.GenerateUserKeys(randomPassword)
 	if err != nil {
+		log.Printf("ERROR: Failed to generate encryption keys for %s: %v", email, err)
 		return nil, err
 	}
 
-	// Create user in Supabase Auth with auto-confirm disabled
-	// Use the email as full_name by default
-	signupRequest := types.SignupRequest{
-		Email:    email,
-		Password: randomPassword,
-		Data: map[string]interface{}{
-			"full_name": email, // Default to email as name
-		},
-	}
-
-	authResponse, err := config.SupabaseClient.Auth.Signup(signupRequest)
+	// Create user in Supabase Auth using Admin API with email already confirmed
+	// This prevents sending a verification email
+	log.Printf("Creating user via Admin API for %s (this will NOT send verification email)", email)
+	userID, err := createUserWithAdminAPI(email, randomPassword)
 	if err != nil {
+		log.Printf("ERROR: Failed to create user via Admin API for %s: %v", email, err)
+		log.Printf("HINT: Make sure SUPABASE_SERVICE_ROLE_KEY is set in your environment variables")
 		return nil, err
 	}
+	log.Printf("Successfully created user %s via Admin API with email auto-confirmed (no verification email sent)", email)
 
 	// Create user record in database with encryption keys
-	userID := authResponse.User.ID.String()
 	err = database.CreateUser(userID, keys.PublicKeyPEM, keys.EncryptedPrivateKey, keys.Salt, keys.IV)
 	if err != nil {
-		log.Printf("Warning: User created in auth but failed to save keys: %v", err)
+		log.Printf("WARNING: User %s created in auth but failed to save keys: %v", email, err)
 		// Don't return error here, proceed to send reset email
 	}
 
 	// Send password reset email using Supabase REST API
+	log.Printf("Sending password reset email to %s", email)
 	err = sendPasswordResetEmail(email)
 	if err != nil {
-		log.Printf("Warning: Failed to send password reset email to %s: %v", email, err)
+		log.Printf("WARNING: Failed to send password reset email to %s: %v", email, err)
 		// Don't return error, user is created
+	} else {
+		log.Printf("Successfully sent password reset email to %s", email)
 	}
 
 	return &models.User{
@@ -210,6 +281,83 @@ func CreateUserAndSendResetEmail(email string) (*models.User, error) {
 		Email:    email,
 		FullName: email,
 	}, nil
+}
+
+// createUserWithAdminAPI creates a user using Supabase Admin API with email already confirmed
+// This prevents sending a verification email
+func createUserWithAdminAPI(email, password string) (string, error) {
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	serviceRoleKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+	log.Printf("DEBUG: SUPABASE_URL is set: %v", supabaseURL != "")
+	log.Printf("DEBUG: SUPABASE_SERVICE_ROLE_KEY is set: %v", serviceRoleKey != "")
+
+	if supabaseURL == "" || serviceRoleKey == "" {
+		return "", fmt.Errorf("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
+	}
+
+	// Prepare the request body with email_confirm set to true
+	requestBody := map[string]interface{}{
+		"email":         email,
+		"password":      password,
+		"email_confirm": true, // Auto-confirm email, no verification email sent
+		"user_metadata": map[string]interface{}{
+			"full_name": email, // Default to email as name
+		},
+	}
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request body: %w", err)
+	}
+
+	// Make the HTTP request to Supabase Admin API
+	url := fmt.Sprintf("%s/auth/v1/admin/users", supabaseURL)
+	log.Printf("DEBUG: Making Admin API request to: %s", url)
+	log.Printf("DEBUG: Request body: %s", string(jsonBody))
+	
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("apikey", serviceRoleKey)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", serviceRoleKey))
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read the response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	log.Printf("DEBUG: Admin API response status: %d", resp.StatusCode)
+	log.Printf("DEBUG: Admin API response body: %s", string(body))
+
+	// Check if the request was successful
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("failed to create user via admin API, status: %d, body: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse the response to get the user ID
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	userID, ok := result["id"].(string)
+	if !ok {
+		return "", fmt.Errorf("failed to get user ID from response")
+	}
+
+	log.Printf("Successfully created user via Admin API: %s (ID: %s) with email auto-confirmed", email, userID)
+	return userID, nil
 }
 
 // sendPasswordResetEmail sends a password reset email using Supabase's REST API
@@ -224,7 +372,7 @@ func sendPasswordResetEmail(email string) error {
 
 	// Default frontend URL if not set
 	if frontendURL == "" {
-		frontendURL = "http://localhost:5173"
+		frontendURL = "http://localhost:3000"
 	}
 
 	// Prepare the request body with redirectTo parameter

@@ -36,12 +36,13 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		// Add user info to request context
-		ctx := context.WithValue(r.Context(), "user_id", user.User.ID.String())
-		ctx = context.WithValue(ctx, "user_email", user.User.Email)
+	// Add user info and token to request context
+	ctx := context.WithValue(r.Context(), "user_id", user.User.ID.String())
+	ctx = context.WithValue(ctx, "user_email", user.User.Email)
+	ctx = context.WithValue(ctx, "user_token", tokenString)
 
-		// Call the next handler with the updated context
-		next.ServeHTTP(w, r.WithContext(ctx))
+	// Call the next handler with the updated context
+	next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
 

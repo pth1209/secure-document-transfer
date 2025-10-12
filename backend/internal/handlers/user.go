@@ -92,3 +92,43 @@ func GetUserPublicKeyHandler() http.HandlerFunc {
 	}
 }
 
+// GetPublicKeysByEmailsHandler returns public keys for multiple email addresses
+func GetPublicKeysByEmailsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Parse the request body
+		var request struct {
+			Emails []string `json:"emails"`
+		}
+
+		if err := parseJSON(r, &request); err != nil {
+			RespondWithError(w, http.StatusBadRequest, "Invalid request body", err.Error())
+			return
+		}
+
+		if len(request.Emails) == 0 {
+			RespondWithError(w, http.StatusBadRequest, "At least one email is required", "")
+			return
+		}
+
+		// Get public keys from database
+		publicKeys, err := database.GetPublicKeysByEmails(request.Emails)
+		if err != nil {
+			RespondWithError(w, http.StatusInternalServerError, "Failed to retrieve public keys", err.Error())
+			return
+		}
+
+		// Return the public keys map and list of emails without keys
+		missingKeys := []string{}
+		for _, email := range request.Emails {
+			if _, exists := publicKeys[email]; !exists {
+				missingKeys = append(missingKeys, email)
+			}
+		}
+
+		RespondWithJSON(w, http.StatusOK, map[string]interface{}{
+			"public_keys":  publicKeys,
+			"missing_keys": missingKeys,
+		})
+	}
+}
+

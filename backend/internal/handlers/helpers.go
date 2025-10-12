@@ -30,3 +30,9 @@ func RespondWithError(w http.ResponseWriter, status int, message string, details
 	RespondWithJSON(w, status, errorResponse)
 }
 
+// parseJSON parses the request body into the given interface
+func parseJSON(r *http.Request, v interface{}) error {
+	decoder := json.NewDecoder(r.Body)
+	return decoder.Decode(v)
+}
+

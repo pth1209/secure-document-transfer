@@ -88,12 +88,13 @@ go test ./internal/crypto -v
 
 ## Environment Variables
 
-Create a `.env` file in the backend directory:
+Create a `.env` file in the backend directory. See [ENVIRONMENT.md](./ENVIRONMENT.md) for detailed instructions on obtaining these values.
 
 ```env
 # Supabase Configuration
 SUPABASE_URL=your_supabase_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key  # Required for creating auto-confirmed users
 SUPABASE_JWT_SECRET=your_jwt_secret
 
 # Database Configuration
@@ -102,16 +103,18 @@ DATABASE_URL=your_database_url
 # Server Configuration
 PORT=8080
 
-# Frontend Configuration (for password reset redirects)
-FRONTEND_URL=http://localhost:5173
+# Frontend Configuration (for email redirects)
+FRONTEND_URL=http://localhost:3000  # Used for email verification and password reset redirects
 ```
+
+⚠️ **Important**: You MUST set `SUPABASE_SERVICE_ROLE_KEY` for auto-created users to work without verification emails.
 
 ## API Endpoints
 
 ### Public Endpoints
 
 - `GET /api/health` - Health check
-- `POST /api/signup` - User registration
+- `POST /api/signup` - User registration (sends verification email with redirect to `/login`)
 - `POST /api/signin` - User login
 - `POST /api/password-reset/request` - Request password reset email
 - `POST /api/password-reset/reset` - Reset password with token
@@ -151,4 +154,17 @@ FRONTEND_URL=http://localhost:5173
 - Passwords are used to derive encryption keys via PBKDF2 (100,000 iterations)
 - JWT tokens are verified on every protected route
 - CORS is configured for frontend integration
+
+## Email Behavior
+
+### User-Initiated Signup
+When users register via the `/api/signup` endpoint:
+- **Verification email** is sent with a link that redirects to `${FRONTEND_URL}/login`
+- Users must verify their email before logging in
+
+### Auto-Created Users (File Recipients)
+When users are automatically created as file recipients:
+- **No verification email** is sent (user is auto-confirmed using Admin API)
+- **Password reset email** is sent with a link to `${FRONTEND_URL}/reset-password`
+- This allows recipients to set their own password without email verification
 
