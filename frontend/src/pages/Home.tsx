@@ -1,7 +1,27 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 
 const Home: React.FC = () => {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Check if this is a password reset or signup confirmation redirect
+    const hash = window.location.hash;
+    if (hash) {
+      const params = new URLSearchParams(hash.substring(1));
+      const type = params.get('type');
+      
+      // If it's a recovery/reset password link, redirect to reset-password page
+      if (type === 'recovery') {
+        navigate(`/reset-password${hash}`);
+      }
+      // If it's a signup confirmation or email verification link, redirect to login page
+      else if (type === 'signup' || type === 'email') {
+        navigate(`/login${hash}`);
+      }
+    }
+  }, [navigate]);
+
   return (
     <div className="home">
       {/* Navigation */}

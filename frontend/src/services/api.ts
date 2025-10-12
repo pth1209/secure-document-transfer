@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { SignUpRequest, SignUpResponse, SignInRequest, SignInResponse, User } from '../types/auth';
+import type { SignUpRequest, SignUpResponse, SignInRequest, SignInResponse, User, PasswordResetRequest, PasswordResetResponse, PasswordResetConfirm } from '../types/auth';
 import type { FileChunk } from '../types/file';
 
 const api = axios.create({
@@ -33,6 +33,16 @@ export const authService = {
     await api.post('/signout');
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
+  },
+
+  requestPasswordReset: async (data: PasswordResetRequest): Promise<PasswordResetResponse> => {
+    const response = await api.post<PasswordResetResponse>('/password-reset/request', data);
+    return response.data;
+  },
+
+  resetPassword: async (data: PasswordResetConfirm): Promise<PasswordResetResponse> => {
+    const response = await api.post<PasswordResetResponse>('/password-reset/reset', data);
+    return response.data;
   },
 };
 

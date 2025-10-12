@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { authService } from '../services/api';
 import type { SignInRequest } from '../types/auth';
@@ -10,7 +10,24 @@ const Login: React.FC = () => {
     password: '',
   });
   const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // Check if this is an email confirmation redirect
+    const hash = window.location.hash;
+    if (hash) {
+      const params = new URLSearchParams(hash.substring(1));
+      const type = params.get('type');
+      
+      // If it's a signup confirmation, show success message
+      if (type === 'signup' || type === 'email') {
+        setSuccess('Email verified successfully! You can now sign in.');
+        // Clear the hash from the URL
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -67,6 +84,7 @@ const Login: React.FC = () => {
         </div>
 
         {error && <div className="error-message">{error}</div>}
+        {success && <div className="success-message">{success}</div>}
 
         <form className="form" onSubmit={handleSubmit}>
           <div className="form-group">
@@ -86,9 +104,14 @@ const Login: React.FC = () => {
           </div>
 
           <div className="form-group">
-            <label htmlFor="password" className="form-label">
-              Password
-            </label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <label htmlFor="password" className="form-label" style={{ marginBottom: 0 }}>
+                Password
+              </label>
+              <Link to="/forgot-password" className="auth-link" style={{ fontSize: '0.875rem' }}>
+                Forgot Password?
+              </Link>
+            </div>
             <input
               type="password"
               id="password"
